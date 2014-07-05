@@ -1,0 +1,387 @@
+#include"MERQURY.H"
+#include"crc16.h"
+
+#define MQ_CYCLE_COUNTER 5
+
+typedef enum MERQURY_CURRENT_ { MQ_NONE, MQ_OPEN, MQ_READU, MQ_READI, MQ_READP, MQ_READQ, MQ_READS } MERQURY_CURRENT;
+byte MQ_COMMANDS_CODE[256];
+
+static byte MerquryCounter = 0;
+MERQURY* MerquryMeashure[256];
+MERQURY_CURRENT MQ_COMMANDS[256];
+
+void (*MQ_GETData[256])(int n);
+
+typedef enum REQUEST_ { RQ_BAD, RQ_GOOD } REQUEST;
+
+/*InstallMerqury(
+	40,
+	password,
+	2,
+	TIMERS_COUNTER++,
+	TIMERS_COUNTER++,
+	6,//password size
+	30000,
+	5)*/
+int InstallMerqury(
+	byte address,
+	byte* password,
+	byte com_port,
+	byte timer1,
+	byte timer2,
+	int size,
+	int cycl_oprosa,
+	int cycl_timer2,
+	unsigned char *maska_param){
+  MERQURY* item = malloc(sizeof(MERQURY));
+  if(item == 0){
+    Print( "ERROR MEMORY ALLOCATION" );
+    exit(0);
+  }
+  item->address = address;
+  item->password = malloc(size);
+  if(item->password == 0){
+    Print( "ERROR MEMORY ALLOCATION" );
+    exit(0);
+  }
+  memcpy(item->password, password, 8);
+  item->com_port = com_port;
+  item->timer1 = timer1;
+  item->timer2 = timer2;
+  item->cycl_oprosa = cycl_oprosa;
+  item->cycl_oprosa_const = cycl_oprosa;
+  item->cycl_timer2 = cycl_timer2;
+  item->status = OFF;
+  item->cycle_counter = MQ_CYCLE_COUNTER;
+  SetMyFlag( timer1, cycl_oprosa, 1);//on
+  SetMyFlag( timer2, 0, 0);//off
+  MerquryMeashure[MerquryCounter++] = item;
+  //Print("cycl_oprosa=%d com=%d size=%d Timer1=%d Timer2=%d\n\r", cycl_oprosa, com_port, size, timer1, timer2); exit(0);
+  MQ_Init();
+  return MerquryCounter - 1;
+}
+
+int OpenMerqury(byte address, byte* password, int size, byte timer1, byte timer2) {
+
+}
+
+int IsOpenedMerqury(byte address){
+
+}
+
+byte GetTimer1_Merqury(int n){
+  return MerquryMeashure[n]->timer1;
+}
+
+void MQSendCommand(int n, byte* command, byte len) {
+  if(MerquryMeashure[n]->com_port == 1){
+    ToCom1Data( command, len );
+  } else if(MerquryMeashure[n]->com_port == 2){
+    ToCom2Data( command, len );
+  }
+}
+
+void MerquryOpen(int n) {
+  MERQURY* item = MerquryMeashure[n];
+  byte command[11];
+  int len=11, i;
+  command[0] = item->address;
+  memcpy(command+1, item->password, 8);
+  calcCRC(command, len);
+  Print( "m -> %d\n\r", len );
+  MQSendCommand(n, command, len);
+  MQ_COMMANDS[n] = MQ_OPEN;
+}
+
+int TranslateAddressMerqury(int n) {
+  return n + DIAP_LO_MERQURY;
+}
+
+void MQ_GetU(int n) {
+  byte command[6];
+  MERQURY* item = MerquryMeashure[n];
+  command[0] = item->address;
+  command[1] = 0x08;
+  command[2] = 0x16;
+  command[3] = MQ_COMMANDS_CODE[ MQ_READU ];
+  calcCRC(command, 6);
+  MQSendCommand(n, command, 6);
+  MQ_COMMANDS[n] = MQ_READU;
+}
+
+void MQ_GetI(int n) {
+  byte command[6];
+  MERQURY* item = MerquryMeashure[n];
+  command[0] = item->address;
+  command[1] = 0x08;
+  command[2] = 0x16;
+  command[3] = MQ_COMMANDS_CODE[ MQ_READI ];
+  calcCRC(command, 6);
+  MQSendCommand(n, command, 6);
+  MQ_COMMANDS[n] = MQ_READI;
+}
+
+void MQ_GetP(int n) {
+  byte command[6];
+  MERQURY* item = MerquryMeashure[n];
+  command[0] = item->address;
+  command[1] = 0x08;
+  command[2] = 0x16;
+  command[3] = MQ_COMMANDS_CODE[ MQ_READP ];
+  calcCRC(command, 6);
+  MQSendCommand(n, command, 6);
+  MQ_COMMANDS[n] = MQ_READP;
+}
+
+void MQ_GetQ(int n) {
+  byte command[6];
+  MERQURY* item = MerquryMeashure[n];
+  command[0] = item->address;
+  command[1] = 0x08;
+  command[2] = 0x16;
+  command[3] = MQ_COMMANDS_CODE[ MQ_READQ ];
+  calcCRC(command, 6);
+  MQSendCommand(n, command, 6);
+  MQ_COMMANDS[n] = MQ_READQ;
+}
+
+void MQ_GetS(int n) {
+  byte command[6];
+  MERQURY* item = MerquryMeashure[n];
+  command[0] = item->address;
+  command[1] = 0x08;
+  command[2] = 0x16;
+  command[3] = MQ_COMMANDS_CODE[ MQ_READS ];
+  calcCRC(command, 6);
+  MQSendCommand(n, command, 6);
+  MQ_COMMANDS[n] = MQ_READS;
+}
+
+void ToMerquryData(int n){
+  MERQURY* item = MerquryMeashure[n];
+  if(item->status == OFF) {
+    MerquryOpen(n);
+  } else {
+    MQ_GETData[item->cycle_counter - 1](n);
+    item->cycle_counter--;
+    if( item->cycle_counter == 0 ) {
+      item->cycle_counter = MQ_CYCLE_COUNTER;
+      item->cycl_oprosa = item->cycl_oprosa_const;
+    } else {
+      item->cycl_oprosa = 500;
+    }
+  }
+  //////////////////////////////////
+  //this one is doing that now -> n
+  SetBusyDevice(MerquryMeashure[n]->com_port, TranslateAddressMerqury(n));
+  //////////////////////////////////
+  SetMyFlag(MerquryMeashure[n]->timer1, MerquryMeashure[n]->cycl_oprosa, 1);
+}
+
+int DataTransmittedMerqury(int n){
+  if(MerquryMeashure[n]->com_port == 1){
+    return ( _isDataTransmittedCom1()&&( BusyDeviceByCom(MerquryMeashure[n]->com_port) == TranslateAddressMerqury(n) ) );
+  } else if(MerquryMeashure[n]->com_port == 2){
+    return ( _isDataTransmittedCom2()&&( BusyDeviceByCom(MerquryMeashure[n]->com_port) == TranslateAddressMerqury(n) ) );
+  }
+}
+
+byte GetTimer2_Merqury(int n){
+  return MerquryMeashure[n]->timer2;
+}
+
+int DataReceivedMerqury(int n){
+  if(MerquryMeashure[n]->com_port == 1){
+    return ( _isDataReceivedCom1()&&( BusyDeviceByCom(1) == TranslateAddressMerqury(n) ) );
+  } else if(MerquryMeashure[n]->com_port == 2){
+    return ( _isDataReceivedCom2()&&( BusyDeviceByCom(2) == TranslateAddressMerqury(n) ) );
+  }
+}
+
+REQUEST MQ_Parse_MQ_OPEN(int n, byte* Data, byte len) {
+  MERQURY* item = MerquryMeashure[n];
+  if(( len != 4 )||( item->address != Data[0] )||(!validCRC(Data, len))) {
+    return RQ_BAD;
+  } else {
+    item->status = ON;
+    return RQ_GOOD;
+  }
+}
+
+REQUEST MQ_Parse_MQ_READU(int n, byte* Data, byte len) {
+  int i;
+  long U[3], Ux;
+  MERQURY* item = MerquryMeashure[n];
+  for(i=0; i<len; i++) {
+    Print( "U[%d]=%X\n\r", i, Data[i] );
+  }
+  if(( len != 12 )||( item->address != Data[0] )||(!validCRC(Data, len))) {
+    return RQ_BAD;
+  } else {
+    for(i=0; i<3; i++) {
+      Ux = ((((Data[i*3 + 0 + 1] << 8) + Data[i*3 + 2 + 1])<<8) + Data[i*3 + 1 + 1]);
+      U[i] = Ux / 100;
+      Print( "U = %d\n\r", U[i] );
+    }
+    return RQ_GOOD;
+  }
+}
+
+REQUEST MQ_Parse_MQ_READI(int n, byte* Data, byte len) {
+  int i;
+  long I[3], Ix;
+  MERQURY* item = MerquryMeashure[n];
+  for(i=0; i<len; i++) {
+    Print( "I[%d]=%X\n\r", i, Data[i] );
+  }
+  if(( len != 12 )||( item->address != Data[0] )||(!validCRC(Data, len))) {
+    return RQ_BAD;
+  } else {
+    for(i=0; i<3; i++) {
+      Ix = ((((Data[i*3 + 0 + 1] << 8) + Data[i*3 + 2 + 1])<<8) + Data[i*3 + 1 + 1]);
+      I[i] = Ix / 1;
+      Print( "I = %d\n\r", I[i] );
+    }
+    return RQ_GOOD;
+  }
+}
+
+REQUEST MQ_Parse_MQ_READP(int n, byte* Data, byte len) {
+  int i;
+  long P[3], Px;
+  MERQURY* item = MerquryMeashure[n];
+  for(i=0; i<len; i++) {
+    Print( "P[%d]=%X\n\r", i, Data[i] );
+  }
+  if(( len != 15 )||( item->address != Data[0] )||(!validCRC(Data, len))) {
+    return RQ_BAD;
+  } else {
+    for(i=0; i<3; i++) {
+      Px = ((((Data[i*3 + 0 + 1 + 3] << 8) + Data[i*3 + 2 + 1 + 3])<<8) + Data[i*3 + 1 + 1 + 3]);
+      P[i] = Px / 100;
+      Print( "P = %d\n\r", P[i] );
+    }
+    return RQ_GOOD;
+  }
+}
+
+REQUEST MQ_Parse_MQ_READQ(int n, byte* Data, byte len) {
+  int i;
+  long Q[3], Qx;
+  MERQURY* item = MerquryMeashure[n];
+  for(i=0; i<len; i++) {
+    Print( "Q[%d]=%X\n\r", i, Data[i] );
+  }
+  if(( len != 15 )||( item->address != Data[0] )||(!validCRC(Data, len))) {
+    return RQ_BAD;
+  } else {
+    for(i=0; i<3; i++) {
+      Qx = ((((Data[i*3 + 0 + 1 + 3] << 8) + Data[i*3 + 2 + 1 + 3])<<8) + Data[i*3 + 1 + 1 + 3]);
+      Q[i] = Qx / 100;
+      Print( "Q = %d\n\r", Q[i] );
+    }
+    return RQ_GOOD;
+  }
+}
+
+REQUEST MQ_Parse_MQ_READS(int n, byte* Data, byte len) {
+  int i;
+  long S[3], Sx;
+  MERQURY* item = MerquryMeashure[n];
+  for(i=0; i<len; i++) {
+    Print( "S[%d]=%X\n\r", i, Data[i] );
+  }
+  if(( len != 15 )||( item->address != Data[0] )||(!validCRC(Data, len))) {
+    return RQ_BAD;
+  } else {
+    for(i=0; i<3; i++) {
+      Sx = ((((Data[i*3 + 0 + 1 + 3] << 8) + Data[i*3 + 2 + 1 + 3])<<8) + Data[i*3 + 1 + 1 + 3]);
+      S[i] = Sx / 100;
+      Print( "S = %d\n\r", S[i] );
+    }
+    return RQ_GOOD;
+  }
+}
+
+REQUEST MQParseCommand(int n, byte* Data, byte len) {
+  switch( MQ_COMMANDS[n] ) {
+    case MQ_OPEN:
+      return MQ_Parse_MQ_OPEN(n, Data, len);
+    case MQ_READU:
+      return MQ_Parse_MQ_READU(n, Data, len);
+    case MQ_READI:
+      return MQ_Parse_MQ_READI(n, Data, len);
+    case MQ_READP:
+      return MQ_Parse_MQ_READP(n, Data, len);
+    case MQ_READQ:
+      return MQ_Parse_MQ_READQ(n, Data, len);
+    case MQ_READS:
+      return MQ_Parse_MQ_READS(n, Data, len);
+    case MQ_NONE:
+      Print( "ERROR: MQ_NONE\n\r" );
+      exit(0);
+      return RQ_BAD;
+  }
+}
+
+byte ReadBufferMerqury(int n){
+  //Print( "ReadBufferMerqury" );
+  unsigned char Data[256];
+  unsigned char len = 0;
+  int i;
+  if(MerquryMeashure[n]->com_port == 1){
+    len = ReadDataCom1(Data);
+  } else if(MerquryMeashure[n]->com_port == 2){
+    len = ReadDataCom2(Data);
+  }
+  Print( "m <- %d\n\r", len );
+  if( MQParseCommand(n, Data, len) == RQ_GOOD ) {
+    Print( "m <- GOOD\n\r" );
+  } else {
+    Print( "m <- BAD\n\r" );
+  }
+  for(i=0; i<len; i++) {
+    //Print( "m[%d]=%x\n\r", i, Data[i] );
+  }
+  MQ_COMMANDS[n] = MQ_NONE;
+  return 0;
+}
+
+void ClearComMerqury(int n){
+  if(MerquryMeashure[n]->com_port == 1){
+    InstallTimerCom1();
+    _ClearCom1();
+  } else if(MerquryMeashure[n]->com_port == 2){
+    InstallTimerCom2();
+    _ClearCom2();
+  }
+}
+
+int getCntMerqury(){
+  return MerquryCounter;
+}
+
+int GetCyclTimer2_Merqury(int n){
+  return MerquryMeashure[n]->cycl_timer2;
+}
+
+byte GetComPortMerqury(int id) {
+  return MerquryMeashure[id]->com_port;
+}
+
+void MQ_Init() {
+  int i;
+  for(i=0; i<256; i++) {
+    MQ_COMMANDS[i] = MQ_NONE;
+  }
+  MQ_COMMANDS_CODE[ MQ_READU ] = 0x11;
+  MQ_COMMANDS_CODE[ MQ_READI ] = 0x21;
+  MQ_COMMANDS_CODE[ MQ_READP ] = 0x00;
+  MQ_COMMANDS_CODE[ MQ_READQ ] = 0x04;
+  MQ_COMMANDS_CODE[ MQ_READS ] = 0x08;
+  MQ_GETData[0] = MQ_GetI;
+  MQ_GETData[1] = MQ_GetU;
+  MQ_GETData[2] = MQ_GetP;
+  MQ_GETData[3] = MQ_GetQ;
+  MQ_GETData[4] = MQ_GetS;
+}

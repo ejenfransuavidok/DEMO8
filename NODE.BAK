@@ -1,0 +1,362 @@
+#include "NODE.H"
+#include "101.H"
+
+#define FILL 0xFF
+#define EMPTY 0xFE
+#define TSVALUE 2
+#define LOADDR 0
+#define HIADDR 1
+#define ISFREE 3
+#define MAXINDEX 256
+#define PACKSIZE 4
+#define TSPACK 10 //TS + LO + HI + 7 TIME
+#define TIMEOFFSET 3
+#define NSPORADICNODES 10
+
+/*
+typedef struct TNODE_{
+  unsigned char data[1024];//max 256 + 256 + 256 = TS + ADDRLO + ADDRHI
+  unsigned char time[7];
+  }TNODE;
+*/
+
+unsigned char masks[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
+
+TNODE* TSporadicNodes[NSPORADICNODES] = {0,0,0,0,0,0,0,0,0,0};
+
+unsigned char createMaska(unsigned char nbit)
+{
+  if(nbit > 7)
+  {
+    Print("error: getMaska");
+    exit(0);
+  }
+  return masks[nbit];
+}
+
+int InstallSporadicData(unsigned char id)
+{
+  TNODE *n;
+  int i=0;
+  if( !(n = malloc(sizeof(TNODE))) ){
+    Print("out of memory\n\r");
+    exit(0);
+  }
+  TSporadicNodes[ id ] = n;
+  for( i=0; i<MAXINDEX; i++ ){
+    n->data[ i*PACKSIZE + ISFREE ] = EMPTY;
+  }
+  return 1;
+}
+
+int SetSporadicData(unsigned char *OIKChangedData, int SizeChangedData, unsigned char *OIKtime, unsigned char id)
+{
+  /*
+  OIKChangedData - packed data which size is SizeChangedData (max = 32 bytes),
+  size maska is 32 bytes need create output array data into m which consist of
+  3-bytes packets 1 - hiaddr, 2 - loaddr, 3 - ts. aim is creating just packets
+  with data (been change)
+  */
+  unsigned short i=0, j=-1;
+  unsigned char *maska=0;
+  unsigned char *data=0;
+  unsigned char _MASKA_=0;
+  unsigned short currentaddr=0;
+  unsigned short beginaddr = getBeginAddr( id );
+  TNODE *m = TSporadicNodes[ id ];
+  if( !m ) {
+    Print("error index\n\r");
+    exit(0);
+  }
+  maska = getMaska( id );
+  data =  getData( id );
+  Print( "SSSSS\n\r" );
+  for(i = 0; i < SizeChangedData*8; i++){
+    _MASKA_ = createMaska(i%8);
+    if( OIKChangedData[i/8]&_MASKA_ ){ Print( "_____NUM_____ = %d, %x\n\r", i, data[i/8] );
+      currentaddr = beginaddr;
+      if(GetProto(id) == PROTO_MBUS)
+	  currentaddr += ((i/8)%2==0)?(i + 8):(i - 8);
+      else
+	 currentaddr += i;
+      for(j+=1; ( (j < MAXINDEX)&&(m->data[ j*PACKSIZE + ISFREE ] != EMPTY) ); j++);
+      if( j==MAXINDEX )
+	//overload data
+	return 0;
+      m->data[ j*PACKSIZE + TSVALUE ] = ( (data[i/8]&_MASKA_) != 0 );
+      m->data[ j*PACKSIZE + LOADDR ] = currentaddr&0x00FF;
+      m->data[ j*PACKSIZE + HIADDR ] = ((currentaddr&0xFF00)>>8);
+      m->data[ j*PACKSIZE + ISFREE ] = FILL;
+    }
+  }
+  memcpy(m->time, OIKtime, 7);
+  return 1;
+}
+
+int GetSporadicData(unsigned char *OIKdata, int size)
+{
+  int baseSize = 10, i=0, j=0;
+
+  while( (baseSize < MAX_PACK_SIZE)&&(i < NSPORADICNODES) ){
+    baseSize+=GetSporadicFromOnce(i++, OIKdata + baseSize, MAX_PACK_SIZE - baseSize);
+  }
+  //Print("MAX_PACK_SIZE = %d\n\r", MAX_PACK_SIZE); exit(0);
+  if( baseSize == 10 )
+    return 0;
+  createHeadNode(OIKdata, baseSize - 10);
+  baseSize+=createTailNode(OIKdata, baseSize);
+  return baseSize;
+}
+
+int GetSporadicFromOnce( unsigned char id, unsigned char *OIKdata, int max)
+{
+  TNODE *m = TSporadicNodes[ id ];
+  int nbytes = 0;
+  int i=0, j=0;
+  if( m ) {
+    for( i=0; ( (nbytes + TSPACK < max)&&(i < MAXINDEX) ); i++ ) {
+      if( m->data[ i*PACKSIZE + ISFREE ] == FILL ) {
+	memcpy( OIKdata + j*TSPACK, m->data + i*PACKSIZE, 3 );
+	memcpy( OIKdata + j*TSPACK + TIMEOFFSET, m->time, 7 );
+	m->data[ i*PACKSIZE + ISFREE ] = EMPTY;
+	nbytes += TSPACK;
+	j++;
+      }
+    }
+  }
+  return nbytes;
+}
+
+int createHeadNode(unsigned char *OIKdata, unsigned char size)
+{
+  OIKdata[0] = 0x68;
+  OIKdata[1] = OIKdata[2] = size + 6;
+  OIKdata[3] = 0x68;
+  OIKdata[4] = 0x08;
+  OIKdata[5] = ADDR_STATION;
+  OIKdata[6] = 0x1E;
+  OIKdata[7] = size/10;
+  OIKdata[8] = 0x03;
+  OIKdata[9] = ADDR_STATION;
+  return 10;
+}
+
+int createTailNode(unsigned char *OIKdata, unsigned char offset)
+{
+  int i;
+  OIKdata[offset] = 0;
+  for(i=4; i<offset; i++){
+    OIKdata[offset]+=OIKdata[i];
+  }
+  OIKdata[offset + 1] = 0x16;
+  return 2;
+}
+  /*int i, k;
+  TNODE *n = createNode();
+  TNODE *curr;
+  TNODE *next;
+  TNODE *prev;
+  n = TSporadicNodes[ id ];
+  memcpy(n->data, OIKdata, size);
+  memcpy(n->maska, maska, size);
+  memcpy(n->time, time, 7);
+  n->beginTSADDR = beginTSADDR;
+  n->nreg = nregisters;
+  if(llistsize == LISTSIZE){
+    deleteNode(llist->head->pnext);
+  }
+  curr = llist->tail->pprev;
+  curr->pnext = n;
+  n->pprev = curr;
+  n->pnext = llist->tail;
+  return ++llistsize;
+}
+
+/*
+TNODE *createNode()
+{
+  TNODE *n;
+  if( !(n = malloc(sizeof(TNODE))) ){
+    Print("out of memory\n\r");
+    exit(0);
+  }
+  n->pnext = 0;
+  n->pprev = 0;
+  n->current = 0;
+  return n;
+}
+
+TLIST *createList()
+{
+  if(llist != 0)
+    return llist;
+  if( !(llist = malloc(sizeof(TLIST))) ){
+    Print("out of memory\n\r");
+    exit(0);
+  }
+  llist->head = createNode();
+  llist->tail = createNode();
+  llist->head->pnext = llist->tail;
+  llist->tail->pprev = llist->head;
+  return llist;
+}
+
+unsigned char createMaska(unsigned char nbit)
+{
+  if(nbit > 7)
+  {
+    Print("error: getMaska");
+    exit(0);
+  }
+  return masks[nbit];
+}
+
+int deleteNode(TNODE *n)
+{
+  TNODE *curr = llist->head;
+  TNODE *prev;
+  TNODE *next;
+  while( (n != curr)&&(curr != llist->tail) )
+    curr = curr->pnext;
+  if(curr == llist->tail){
+    Print("deleteNode");
+    exit(0);
+  }
+  next = curr->pnext;
+  prev = curr->pprev;
+  prev->pnext = next;
+  next->pprev = prev;
+  free(curr);
+  curr = 0;
+  return --llistsize;
+}
+
+int addNode(unsigned char *OIKdata, int size, unsigned char *maska, unsigned char *time, unsigned short beginTSADDR, unsigned char nregisters)
+{
+  int i, k;
+  TNODE *n = createNode();
+  TNODE *curr;
+  TNODE *next;
+  TNODE *prev;
+
+  memcpy(n->data, OIKdata, size);
+  memcpy(n->maska, maska, size);
+  memcpy(n->time, time, 7);
+  n->beginTSADDR = beginTSADDR;
+  n->nreg = nregisters;
+  if(llistsize == LISTSIZE){
+    deleteNode(llist->head->pnext);
+  }
+  curr = llist->tail->pprev;
+  curr->pnext = n;
+  n->pprev = curr;
+  n->pnext = llist->tail;
+  return ++llistsize;
+}
+
+int getNonDataSizeOfRequestNode()
+{
+  //MAX_PACK_SIZE 140
+  return MEK101_HEAD_SIZE +
+	 MEK101_HANDLE_BYTE_SIZE +
+	 MEK101_ADDR_STATION_SIZE +
+	 MEK101_IDENTIFIKATOR_OF_TYPE_SIZE +
+	 MEK101_CLASSIFIKATOR_NONCONST_STRUCT_SIZE +
+	 MEK101_BY_SPORADIC_SIZE +
+	 MEK101_ADDR_STATION_SIZE +
+	 MEK101_SUMM_SIZE +
+	 MEK101_END_SIZE;
+}
+
+unsigned short getTSADDRNode(TNODE *p, unsigned short numberTS)
+{
+  int i, j, beginADDR = p->beginTSADDR;
+  for(i = 0; i < numberTS; i++){
+    if(( p->maska[i/8]&createMaska(i%8) ) != 0){
+      beginADDR++;
+    }
+  }
+  return beginADDR;
+}
+
+int insertDataNode(TNODE *p, unsigned char *OIKdata, unsigned short numberTS)
+{
+  int i;
+  unsigned short addr = getTSADDRNode(p, numberTS);
+  OIKdata[0] = (unsigned char)(addr&0x00FF);
+  OIKdata[1] = (unsigned char)((addr&0xFF00)>>8);
+  OIKdata[2] = (( p->data[numberTS/8]&createMaska(numberTS%8) ) != 0);
+  memcpy((OIKdata+3), p->time, 7);
+  return 10;
+}
+
+int MaskedNode(unsigned char *maska, int nTS)
+{
+  if(nTS/8 >= MASK_SIZE){
+    Print("error: IfNonMasked\n\r");
+    exit(0);
+  }
+  if(( maska[nTS/8]&createMaska(nTS%8) ) != 0)
+    return 0;
+  return 1;
+}
+
+int getDataFromOneNode(TNODE *p, const unsigned char *OIKdata, int max)
+{
+  unsigned char *d = OIKdata;
+  int i = 0;
+  if(p == 0)
+    return 0;
+  while( (i < (max - 10) )&&(p->current < p->nreg*2*8) ){
+    if( MaskedNode(p->maska, p->current) ){
+      p->current++;
+      continue;
+    }
+    d+=insertDataNode(p, d, p->current++);
+    i+=10;
+  }
+  //Print("Max = %d\n\r", i);
+  return i;
+}
+
+int createHeadNode(unsigned char *OIKdata, unsigned char size)
+{
+  OIKdata[0] = 0x68;
+  OIKdata[1] = OIKdata[2] = size + 6;
+  OIKdata[3] = 0x68;
+  OIKdata[4] = 0x08;
+  OIKdata[5] = ADDR_STATION;
+  OIKdata[6] = 0x1E;
+  OIKdata[7] = size/10;
+  OIKdata[8] = 0x03;
+  OIKdata[9] = ADDR_STATION;
+  return 10;
+}
+
+int createTailNode(unsigned char *OIKdata, unsigned char offset)
+{
+  int i;
+  OIKdata[offset] = 0;
+  for(i=4; i<offset; i++){
+    OIKdata[offset]+=OIKdata[i];
+  }
+  OIKdata[offset + 1] = 0x16;
+  return 2;
+}
+
+int getDataNode(unsigned char *OIKdata, int size)
+{
+  int baseSize = 10;
+  TNODE *p = llist->head->pnext;
+  while(( baseSize < MAX_PACK_SIZE )&&( p != llist->tail )){
+    baseSize+=getDataFromOneNode(p, OIKdata + baseSize, MAX_PACK_SIZE - baseSize);
+    p = p->pnext;
+  }
+  //Print("MAX_PACK_SIZE = %d\n\r", MAX_PACK_SIZE); exit(0);
+  if( baseSize == 10 )
+    return 0;
+  createHeadNode(OIKdata, baseSize - 10);
+  baseSize+=createTailNode(OIKdata, baseSize);
+  return baseSize;
+}
+*/

@@ -1,0 +1,304 @@
+#include"DEVICE.H"
+
+byte who_is_doing[256];
+byte _devices_[256] = {
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+	255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+	};
+
+int GetDeviceId(int index){
+  if(_devices_[index] == 255){
+    Print("ERROR DEVICE INDEX\n\r");
+    exit(0);
+  }
+  return _devices_[index];
+}
+
+int AddDevice( enum DEVICE dev, int id ) {
+  byte i=0;
+  while( _devices_[i] != 255 )i++;
+  switch( dev ){
+    case DEV101:
+      _devices_[i] = id;
+      return _devices_[i];
+    case DEVMERQURY:
+      _devices_[i] = id + DIAP_LO_MERQURY;
+      return _devices_[i];
+    default:
+      Print("ERROR DEVICE\n\r");
+      exit(0);
+  }
+  return -1;
+}
+
+enum DEVICE GetDeviceType(int n){
+  if( n <= DIAP_HI_101 )
+    return DEV101;
+  else if( n >= DIAP_LO_MERQURY && n <= DIAP_HI_MERQURY )
+    return DEVMERQURY;
+  return DEVUNDEFINED;
+}
+
+byte GetTimer1_Device(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return GetTimer1_101(n);
+    case DEVMERQURY:
+      return GetTimer1_Merqury(n-DIAP_LO_MERQURY);
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+byte BusyDeviceById(int n) {
+  int com_port;
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      com_port = GetComPort101(n);
+      break;
+    case DEVMERQURY:
+      com_port = GetComPortMerqury(n-DIAP_LO_MERQURY);
+      break;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  //Print( "D%d-c%d=%d ", n, com_port, BusyDeviceByCom(com_port) );
+  return BusyDeviceByCom(com_port);
+}
+
+byte ClearBusyDeviceById(int n) {
+  int com_port;
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      com_port = GetComPort101(n);
+      break;
+    case DEVMERQURY:
+      com_port = GetComPortMerqury(n-DIAP_LO_MERQURY);
+      break;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  //Print( "D%d-c%d=%d ", n, com_port, BusyDeviceByCom(com_port) );
+  return ClearBusyDeviceByCom(com_port);
+}
+
+byte BusyDeviceByCom(int com_port){
+  return who_is_doing[com_port];
+}
+
+byte SetBusyDevice(int com_port, int n) {
+  who_is_doing[com_port] = n;
+  return 0;
+}
+
+byte ClearBusyDeviceByCom(int com_port) {
+  who_is_doing[com_port] = 0;
+  return 0;
+}
+
+void ToDeviceDataById(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      To101Data(n); break;
+    case DEVMERQURY:
+      ToMerquryData(n-DIAP_LO_MERQURY); break;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+}
+
+int DataTransmittedDevice(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return DataTransmitted101(n);
+    case DEVMERQURY:
+      return DataTransmittedMerqury(n-DIAP_LO_MERQURY);
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+byte GetTimer2_Device(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return GetTimer2_101(n);
+    case DEVMERQURY:
+      return GetTimer2_Merqury(n-DIAP_LO_MERQURY);
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+int DataReceivedDevice(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return DataReceived101(n);
+    case DEVMERQURY:
+      return DataReceivedMerqury(n-DIAP_LO_MERQURY);
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+byte ReadBufferDevice(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return ReadBuffer101DCON(n);
+    case DEVMERQURY:
+      return ReadBufferMerqury(n-DIAP_LO_MERQURY);
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+int GetAllDevices(){
+  return getCnt101() + getCntMerqury();
+}
+
+int GetCyclTimer2_Device(int n){
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return GetCyclTimer2_101DCON(n);
+    case DEVMERQURY:
+      return GetCyclTimer2_Merqury(n-DIAP_LO_MERQURY);
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+int ClearComDeviceById(int n) {
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      ClearCom101(n);
+      break;
+    case DEVMERQURY:
+      ClearComMerqury(n-DIAP_LO_MERQURY);
+      break;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+void calcCRC(unsigned char *d, int len)
+{
+  unsigned short crc = CRC16asm(d, len - 2);
+  d[len - 2] = (crc&0x00FF);
+  d[len - 1] = (crc&0xFF00)>>8;
+}
+
+void PrepareComToReceiveById(int n)
+{
+  int com_port;
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      com_port = GetComPort101(n);
+      break;
+    case DEVMERQURY:
+      com_port = GetComPortMerqury(n-DIAP_LO_MERQURY);
+      break;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  if(com_port == 1){
+    Set485DirToReceive(1);
+    SetTimerCom1(100);
+  } else if(com_port == 2){
+    Set485DirToReceive(2);
+    SetTimerCom2(100);
+  }
+}
+
+void PrepareComToTransmitById(int n) {
+  int com_port;
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      com_port = GetComPort101(n);
+      break;
+    case DEVMERQURY:
+      com_port = GetComPortMerqury(n-DIAP_LO_MERQURY);
+      break;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  if(com_port == 1){
+    Set485DirToTransmit(1);
+    InstallTimerCom1();
+    _ClearCom1();
+  } else if(com_port == 2){
+    Set485DirToTransmit(2);
+    InstallTimerCom2();
+    _ClearCom2();
+  }
+}
+
+int GetTUFlagDevice( unsigned char n ) {
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return GetTUFlag(n);
+    case DEVMERQURY:
+      return 0;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+int IncTUFlagDevice( int n ) {
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return IncTUFlag(n);
+    case DEVMERQURY:
+      return 0;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}
+
+unsigned char HandleTUDevice( unsigned char n ) {
+  switch( GetDeviceType(n) ){
+    case DEV101:
+      return HandleTU(n);
+    case DEVMERQURY:
+      return 0;
+    case DEVUNDEFINED:
+      Print( "INVALID DEVICE TYPE\n\r" );
+      exit(0);
+  }
+  return 0;
+}

@@ -1,0 +1,10 @@
+int SendToModem(char *cmd);
+int GetModemResponse(char *buf);
+int InitModem(void);
+int HangUp(void);
+int AnswerPhone(void);
+int AutoAnswer(void);
+int SendTel(char *Phno);
+int DetectConnect(void);
+int OpenModem(void);
+extern int fDebugMode;
